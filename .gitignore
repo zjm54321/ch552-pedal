@@ -1,0 +1,9 @@
+/.direnv/
+/.deps/
+/.cache/
+/build/
+/tests/core/build/
+/result
+/result-*
+__pycache__/
+*.pyc
