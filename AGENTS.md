@@ -6,6 +6,8 @@
   project configuration here; never change the system Nix configuration for this project.
 - The original KiCad working directory, outside this repository, is read-only.
   Hardware is established; do not redesign or rewrite the KiCad files.
+  `hardware/` is a published CERN-OHL-S-2.0 snapshot of that directory; only
+  re-sync it from the original, never edit the design there.
 - Target: CH552G, USB full speed, one active-low pedal on P3.3 per USB device.
 
 ## Required behavior
