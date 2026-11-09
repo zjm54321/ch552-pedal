@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "pedal_core.h"
+#include "pedal_macro.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -10,6 +11,9 @@ typedef struct {
     uint8_t storage[PEDAL_STORAGE_SIZE];
     unsigned int writes;
     unsigned int boot_requests;
+    uint8_t macros[PEDAL_MACRO_BUFFER_SIZE];
+    unsigned int macro_writes;
+    unsigned int macro_resets;
 } fixture_t;
 
 static void request(uint8_t report[PEDAL_RAW_REPORT_SIZE], uint8_t command)
@@ -45,6 +49,19 @@ static uint8_t transact(fixture_t *device, uint8_t *report, uint8_t length)
     }
     if ((flags & PEDAL_VIA_BOOTLOADER) != 0) {
         ++device->boot_requests;
+    }
+    if (flags & PEDAL_VIA_MACRO_READ) {
+        pedal_macro_read(device->macros, ((uint16_t)report[1] << 8) | report[2],
+                         report[3], report + 4);
+    }
+    if ((flags & PEDAL_VIA_MACRO_WRITE) && report[3]) {
+        memcpy(device->macros + (((uint16_t)report[1] << 8) | report[2]),
+               report + 4, report[3]);
+        ++device->macro_writes;
+    }
+    if (flags & PEDAL_VIA_MACRO_RESET) {
+        memset(device->macros, 0, sizeof(device->macros));
+        ++device->macro_resets;
     }
     return flags;
 }
@@ -98,12 +115,13 @@ static void test_keycodes(void)
         {0x00E4, 0x10, 0x00},
         {0x00E5, 0x20, 0x00},
         {0x00E6, 0x40, 0x00},
-        {0x00E7, 0x80, 0x00}
+        {0x00E7, 0x80, 0x00},
+        {0x7700, 0, 0}, {0x7701, 0, 0}, {0x7702, 0, 0}, {0x7703, 0, 0}
     };
     static const uint16_t invalid[] = {
         0x0001, 0x0002, 0x0003, 0x00A5, 0x00A8, 0x00DF, 0x00E8, 0x00FF,
         0x0101, 0x03A8, 0x1000, 0x1004, 0x1FE8, 0x2004, 0x4004, 0x5200,
-        0x7700, 0x7E00, 0xFFFF
+        0x7704, 0x777F, 0x7E00, 0xFFFF
     };
     uint8_t report[PEDAL_KEYBOARD_REPORT_SIZE];
     uint8_t untouched[PEDAL_KEYBOARD_REPORT_SIZE];
@@ -126,12 +144,11 @@ static void test_queries(void)
 {
     fixture_t device;
     uint8_t report[PEDAL_RAW_REPORT_SIZE];
-    uint8_t keyboard[PEDAL_KEYBOARD_REPORT_SIZE];
 
     start(&device);
     request(report, 0x01);
     assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[0] == 0x01 && report[1] == 0 && report[2] == 8);
+    assert(report[0] == 0x01 && report[1] == 0 && report[2] == 13);
 
     request(report, 0x11);
     assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
@@ -142,43 +159,32 @@ static void test_queries(void)
     assert(report[4] == 0 && report[5] == 0x2C);
 
     request(report, 0x02);
-    report[1] = 0x01;
+    report[1] = 0x04;
     assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[2] == 0x12 && report[3] == 0x34);
-    assert(report[4] == 0x56 && report[5] == 0x78);
+    assert(report[2] == 0 && report[3] == 0 && report[4] == 0);
+    assert(report[5] == PEDAL_FIRMWARE_VERSION);
 
     memset(report, 0xFF, sizeof(report));
     report[0] = 0x02;
-    report[1] = 0x02;
+    report[1] = 0x06;
     assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[2] == 0 && report[3] == 0 && report[4] == 0 && report[5] == 0);
-
-    request(report, 0x02);
-    report[1] = 0x03;
-    assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[2] == 0);
-    assert(pedal_core_update(&device.core, 1, keyboard) == 1);
-    assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[2] == 1);
-    assert(pedal_core_update(&device.core, 0, keyboard) == 1);
-    assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[2] == 0);
+    assert(memcmp(report, (uint8_t[]){2, 6, 0, 0, 0, 9}, 6) == 0);
 
     memset(report, 0xFF, sizeof(report));
     report[0] = 0x0C;
     assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[1] == 0);
+    assert(report[1] == PEDAL_MACRO_COUNT);
     memset(report, 0xFF, sizeof(report));
     report[0] = 0x0D;
     assert(transact(&device, report, sizeof(report)) == PEDAL_VIA_HANDLED);
-    assert(report[1] == 0 && report[2] == 0);
+    assert(report[1] == 0 && report[2] == PEDAL_MACRO_BUFFER_SIZE);
     assert(device.writes == 0 && device.boot_requests == 0);
 }
 
 static void test_invalid_commands(void)
 {
     static const uint8_t unknown[] = {
-        0x00, 0x03, 0x07, 0x08, 0x09, 0x0A, 0x0E, 0x0F, 0x10, 0x14, 0xFE, 0xFF
+        0x00, 0x03, 0x07, 0x08, 0x09, 0x0A, 0x14, 0xFE, 0xFF
     };
     fixture_t device;
     uint8_t report[256];
@@ -233,11 +239,92 @@ static void test_invalid_commands(void)
     report[1] = 0xFF;
     assert(transact(&device, report, PEDAL_RAW_REPORT_SIZE) == 0);
     assert(report[0] == 0xFF);
+    for (command = 0x02; command <= 0x03; ++command) {
+        for (value = 0; value <= 255; ++value) {
+            if (command == 0x02 && (value == 0x04 || value == 0x06)) continue;
+            request(report, command);
+            report[1] = (uint8_t)value;
+            memcpy(before, report, PEDAL_RAW_REPORT_SIZE);
+            assert(transact(&device, report, PEDAL_RAW_REPORT_SIZE) == 0);
+            assert(report[0] == 0xFF);
+            assert(memcmp(report + 1, before + 1, PEDAL_RAW_REPORT_SIZE - 1) == 0);
+        }
+    }
     assert(remap(&device, 0x7E00) == 0);
     assert(remap(&device, 0x00A8) == 0);
     assert(remap(&device, 0x0101) == 0);
+    assert(remap(&device, PEDAL_MACRO_KEYCODE + PEDAL_MACRO_COUNT) == 0);
     assert(device.core.keycode == PEDAL_DEFAULT_KEYCODE);
     assert(device.writes == 0 && device.boot_requests == 0);
+}
+
+static void test_macro_commands(void)
+{
+    static const uint16_t offsets[] = {0, 1, 27, 84, 108, 109, 110, 255, 256, 65535};
+    fixture_t device;
+    uint8_t guarded[PEDAL_RAW_REPORT_SIZE + 2];
+    uint8_t before[sizeof(guarded)];
+    uint8_t saved[PEDAL_MACRO_BUFFER_SIZE];
+    uint8_t *packet = guarded + 1;
+    unsigned int cmd, n, size, i;
+    uint16_t offset;
+    uint8_t expected;
+    start(&device);
+    for (i = 0; i < sizeof(device.macros); ++i) device.macros[i] = (uint8_t)(i + 1);
+    for (cmd = 0x0E; cmd <= 0x0F; ++cmd) {
+        for (n = 0; n < sizeof(offsets) / sizeof(offsets[0]); ++n) {
+            offset = offsets[n];
+            for (size = 0; size <= 255; ++size) {
+                memset(guarded, 0xCC, sizeof(guarded));
+                packet[0] = (uint8_t)cmd;
+                packet[1] = (uint8_t)(offset >> 8);
+                packet[2] = (uint8_t)offset;
+                packet[3] = (uint8_t)size;
+                for (i = 0; i < 28; ++i)
+                    packet[4 + i] = offset < sizeof(device.macros) &&
+                                    i < sizeof(device.macros) - offset
+                                        ? device.macros[offset + i] : 0xCC;
+                memcpy(before, guarded, sizeof(before));
+                memcpy(saved, device.macros, sizeof(saved));
+                expected = size <= 28 && (cmd == 0x0E ||
+                           (offset <= sizeof(device.macros) && size <= sizeof(device.macros) - offset))
+                               ? PEDAL_VIA_HANDLED | (cmd == 0x0E ? PEDAL_VIA_MACRO_READ : PEDAL_VIA_MACRO_WRITE) : 0;
+                assert(transact(&device, packet, PEDAL_RAW_REPORT_SIZE) == expected);
+                assert(guarded[0] == 0xCC && guarded[sizeof(guarded) - 1] == 0xCC);
+                assert(memcmp(packet + 1, before + 2, 3) == 0); /* Echo offset/size. */
+                if (!expected) {
+                    assert(packet[0] == 0xFF);
+                    assert(memcmp(packet + 1, before + 2, PEDAL_RAW_REPORT_SIZE - 1) == 0);
+                } else if (cmd == 0x0E) {
+                    for (i = 0; i < size; ++i)
+                        assert(packet[4 + i] == (offset < sizeof(device.macros) &&
+                               i < sizeof(device.macros) - offset ? saved[offset + i] : 0));
+                    assert(memcmp(packet + 4 + size, before + 5 + size, 28 - size) == 0);
+                } else {
+                    assert(memcmp(packet, before + 1, PEDAL_RAW_REPORT_SIZE) == 0);
+                }
+                assert(memcmp(saved, device.macros, sizeof(saved)) == 0);
+                assert(device.core.keycode == PEDAL_DEFAULT_KEYCODE);
+            }
+        }
+    }
+    request(packet, 0x0F);
+    packet[3] = 3;
+    packet[4] = 1; packet[5] = 1; packet[6] = 0x04;
+    assert(transact(&device, packet, PEDAL_RAW_REPORT_SIZE) ==
+           (PEDAL_VIA_HANDLED | PEDAL_VIA_MACRO_WRITE));
+    assert(memcmp(device.macros, packet + 4, 3) == 0);
+    memset(packet, 0xCC, PEDAL_RAW_REPORT_SIZE);
+    packet[0] = 0x10;
+    memcpy(before, packet, PEDAL_RAW_REPORT_SIZE);
+    assert(transact(&device, packet, PEDAL_RAW_REPORT_SIZE) ==
+           (PEDAL_VIA_HANDLED | PEDAL_VIA_MACRO_RESET));
+    assert(memcmp(before, packet, PEDAL_RAW_REPORT_SIZE) == 0);
+    for (i = 0; i < sizeof(device.macros); ++i) assert(!device.macros[i]);
+    assert(device.macro_resets == 1 && device.writes == 0);
+    assert(remap(&device, 0x7703) == (PEDAL_VIA_HANDLED | PEDAL_VIA_SAVE));
+    assert(pedal_core_init(&device.core, device.storage, sizeof(device.storage)));
+    assert(device.core.keycode == 0x7703);
 }
 
 static void test_buffers(void)
@@ -505,8 +592,9 @@ int main(void)
     test_queries();
     test_invalid_commands();
     test_buffers();
+    test_macro_commands();
     test_persistence_and_boot();
     test_runtime_and_independent_devices();
-    puts("core tests: PASS (keycodes, VIA, bounds, persistence, runtime, isolation)");
+    puts("core tests: PASS (VIA 13/version bytes, macro commands/over-read/echo/bounds, keycodes, persistence, runtime, isolation)");
     return 0;
 }

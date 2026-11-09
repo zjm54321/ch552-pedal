@@ -19,8 +19,8 @@ void USBTransportSuspend(uint8_t suspended);
 uint8_t USBEndpointHalt(uint8_t address, uint8_t halt);
 uint8_t USBEndpointStatus(uint8_t address);
 void USBInit(void);
-uint8_t USBKeyboardSend(const uint8_t *report, uint8_t epoch, uint8_t input_epoch);
-uint8_t USBRawTake(uint8_t *report, uint8_t epoch);
-uint8_t USBRawReply(const uint8_t *report, uint8_t epoch);
+uint8_t USBKeyboardSend(const __xdata uint8_t *report, uint8_t epoch, uint8_t input_epoch);
+uint8_t USBRawTake(__xdata uint8_t *report, uint8_t epoch);
+uint8_t USBRawReply(const __xdata uint8_t *report, uint8_t epoch);
 
 #endif

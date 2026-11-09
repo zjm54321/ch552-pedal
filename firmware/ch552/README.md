@@ -30,10 +30,35 @@
   from the previous build is read at slot 0 and migrates on the first save.
   Commit bytes take two writes per save, so at the datasheet's roughly 10,000
   writes per cell, expect about 10,000 mapping changes.
-- Suspend: edges are not queued while suspended. On resume, or on a complete
-  suspend/resume observed late through `UsbInputEpoch`, main drops queued edges
-  and reports only the current debounced state. Low-power sleep and remote wakeup
-  are not implemented: suspend current is unmeasured and may exceed the USB limit.
+- VIA protocol 13 reports keycodes version `00 00 00 09` and firmware version
+  `00 00 00 01`. Only these two GET keyboard values are supported; all other
+  GET/SET values return unknown-command. Definitions are V3, V2 off: minimal
+  `via/pedal.json` for test IDs, official unmodified `via/is0.json` for is0 IDs.
+- Four `MACRO(0..3)` mappings use `0x7700..0x7703`. Logical DataFlash 16..124
+  holds the 109-byte V11 macro buffer; 125 is the validity byte and 126..127
+  the big-endian CRC-16 over all 109 bytes. The keymap journal is unchanged.
+  Reset/start-FF/contiguous chunks/final-zero framing, a live failure latch,
+  complete structure validation and readback precede CRC/validity publication.
+  Unchanged bytes are not rewritten. A torn update disables macros rather than
+  playing partial data; the previous macros are not retained in a second copy.
+  See `docs/protocol.md` for the exact power-fail guarantees and CRC limitations.
+- The nonblocking macro player uses 144 code-space bytes for US ASCII/shift.
+  Tap/down/up/delay actions use single-byte HID keyboard keycodes; delays are
+  0..9999 ms. Main advances only after preceding reports complete. Six ordinary
+  keys plus eight modifiers fit; malformed/overflow/epoch events release all.
+  Releasing the pedal does not abort, and represses during playback are ignored.
+  Remapping leaves playback intact; macro writes/reset abort before mutation.
+- Suspend: no suspended taps are queued/replayed. Main aborts macros, latches
+  their zero release for resume, and enters power-down only after synchronous
+  storage work, with no reply/mailbox/ISP work pending. With interrupts masked,
+  SAFE_MOD arms `bWAK_BY_USB` only; the final suspend/status/USB-event check gates
+  `PCON |= PD`. Wake clears WAKE_CTRL under SAFE_MOD and restores interrupts.
+  No P3.3 wake or remote wakeup. A normal held report stays latched at the host
+  until eight fresh awake debounce samples reconcile it; macros need a new edge.
+  Timer2 pauses during PD; its phase and debounce restart, uptime excludes PD.
+  Unmeasured 5V estimate: roughly 0.3 mA released / 0.37 mA held (0.1 mA MCU,
+  ~0.2 mA USB pull-up, +70 µA held-input pull-up); other board loads add current.
+  Datasheet-only estimates do not replace PD-current/USB-retention/resume tests.
 - Endpoint halt is tracked per direction for EP1/EP2 only, validated before any
   state change, reported by GET_STATUS and preserved by send/completion paths.
 - Runtime VIA `0x0B` queues its reply and a keyboard release, allows up to 100 ms
@@ -43,8 +68,32 @@
 USB DMA is fixed at `[0,8)`, `[10,138)`, `[138,266)`; SDCC allocations start at
 266. All application HEX addresses must be below `0x3800`; DataFlash and the
 installed bootloader are not part of the image. `--nooverlay` prevents ISR and
-main/core local-variable overlay. Build products and the address/descriptor audit
-are in `build/ch552/`; `make firmware` never accesses USB hardware.
+main/core local-variable overlay. All target state/report pointers are qualified
+XRAM pointers, while the ASCII tables remain in code space; host tests erase
+the target qualifier. No generic descriptor pointer or ISR safety was removed.
+
+## Builds and measured fit
+
+`make firmware VARIANT=test` (default) and `make firmware VARIANT=is0` compile
+the same sources with only `-DUSB_VID/-DUSB_PID` different. Defaults remain
+`1209:0001`; the is0 convenience build borrows `A103:0012`. No product/serial
+string change: both are **Pedal XXXXXXXXXX** from the chip UID. Neither ID pair
+is allocated to this project; restrictions/provenance are in `via/README.md`.
+Objects/maps/memory/audits are isolated in `build/ch552/test/` and
+`build/ch552/is0/`; images are `build/ch552/pedal-test.hex` and
+`build/ch552/pedal-is0.hex`. `make check` builds/audits both, never USB hardware.
+
+2026-11-09 fit measurements (same `--model-large --nooverlay` throughout):
+
+| Candidate | Flash span / highest | XRAM end | Linker-available stack |
+|---|---|---|---|
+| Baseline protocol 8 | 10,084 / `0x2763` (10,028 emitted) | `0x0290` | 182 bytes |
+| Protocol 13 + macros + PD, generic pointers | 15,832 / `0x3DD7`, rejected | `0x0384` | 130 bytes |
+| Explicit XRAM core/storage/playback/transport pointers | 13,707 / `0x358A` (13,651 emitted) | `0x0358` | 187 bytes |
+
+The sole size optimization saves 2,125 Flash bytes and leaves 629 bytes below
+`0x3800`; all bounds/CRC/framing checks and the 109-byte macro capacity remain.
+This stack figure is linker placement, not measured runtime high-water.
 
 See `third_party/ch55xduino/PROVENANCE.md` for the pinned reused stack and local
 changes, and `via/README.md` for the development-only IDs and configuration flow.

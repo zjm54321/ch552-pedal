@@ -84,22 +84,22 @@ def check_map(path: Path) -> list[str]:
     return lines
 
 
-def check_identity() -> str:
-    """Require VIA's development IDs/matrix to match the firmware constants."""
-    config = (ROOT / "firmware/ch552/board_config.h").read_text(encoding="utf-8")
-    definition = json.loads((ROOT / "via/pedal.json").read_text(encoding="utf-8"))
-    for constant, field in (("USB_VID", "vendorId"), ("USB_PID", "productId")):
-        match = re.search(rf"^#define {constant}\s+(0x[0-9A-Fa-f]+)\b", config, re.MULTILINE)
-        if not match or int(match[1], 16) != int(definition[field], 16):
-            raise ValueError(f"VIA {field} differs from {constant}")
+def check_identity(definition_path: Path) -> str:
+    """Require a one-key VIA definition; linked IDs are checked separately."""
+    definition = json.loads(definition_path.read_text(encoding="utf-8"))
+    for field in ("vendorId", "productId"):
+        if not 0 <= int(definition[field], 16) <= 0xFFFF:
+            raise ValueError(f"VIA {field} is not a 16-bit USB ID")
     if definition["matrix"] != {"rows": 1, "cols": 1}:
         raise ValueError("VIA matrix must be 1x1")
-    if definition["layouts"]["keymap"] != [["0,0"]]:
+    # KLE rows may contain geometry objects, as the official is0 definition does.
+    coordinates = [key for row in definition["layouts"]["keymap"] for key in row if isinstance(key, str)]
+    if coordinates != ["0,0"]:
         raise ValueError("VIA pedal must occupy coordinate 0,0")
     return f"VIA: {definition['vendorId']}:{definition['productId']}, matrix 1x1"
 
 
-def check_descriptors(image: dict[int, int], map_path: Path) -> str:
+def check_descriptors(image: dict[int, int], map_path: Path, definition_path: Path) -> str:
     """Verify the linked descriptor bytes, not just source-level declarations."""
     text = map_path.read_text(encoding="ascii")
 
@@ -111,7 +111,7 @@ def check_descriptors(image: dict[int, int], map_path: Path) -> str:
         return bytes(image[start + offset] for offset in range(length))
 
     device = descriptor("DeviceDescriptor", 18)
-    definition = json.loads((ROOT / "via/pedal.json").read_text(encoding="utf-8"))
+    definition = json.loads(definition_path.read_text(encoding="utf-8"))
     if device[:2] != b"\x12\x01" or device[7] != 8:
         raise ValueError("linked device descriptor has wrong type/EP0 size")
     if int.from_bytes(device[8:10], "little") != int(definition["vendorId"], 16):
@@ -166,11 +166,13 @@ def stack_placement(path: Path) -> str:
 def main() -> None:
     """Check image, interrupt vectors, memory regions, and VIA IDs; emit evidence."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build-dir", type=Path, default=ROOT / "build/ch552")
+    parser.add_argument("--build-dir", type=Path, default=ROOT / "build/ch552/test")
+    parser.add_argument("--hex", type=Path, default=ROOT / "build/ch552/pedal-test.hex", dest="hex_path")
+    parser.add_argument("--definition", type=Path, default=ROOT / "via/pedal.json")
     args = parser.parse_args()
     build = args.build_dir
     image = read_hex(build / "pedal.ihx")
-    if read_hex(build / "pedal.hex") != image:
+    if read_hex(args.hex_path) != image:
         raise ValueError("packed HEX and linked IHX differ")
     map_text = (build / "pedal.map").read_text(encoding="ascii")
     for name, vector in (("reset", 0), ("Timer2", 0x2B), ("USB", 0x43)):
@@ -185,13 +187,14 @@ def main() -> None:
             if not match or destination != int(match[1], 16):
                 raise ValueError(f"{name} vector does not target {symbol}")
     evidence = [
+        f"Image: {args.hex_path.name}; definition: {args.definition}",
         f"Flash: {len(image)} emitted bytes; span {max(image) + 1} bytes; "
         f"highest 0x{max(image):04X}; limit 0x3800",
         "Linked vectors: reset 0x00, Timer2 0x2B, USB 0x43",
         *check_map(build / "pedal.map"),
         stack_placement(build / "pedal.mem"),
-        check_identity(),
-        check_descriptors(image, build / "pedal.map"),
+        check_identity(args.definition),
+        check_descriptors(image, build / "pedal.map", args.definition),
     ]
     report = "\n".join(evidence) + "\n"
     (build / "bounds.txt").write_text(report, encoding="utf-8")

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "USBhandler.h"
 #include "pedal_core.h"
+#include "usb_power.h"
 
 #include <cassert>
 #include <cstdio>
@@ -21,6 +22,21 @@ volatile uint8_t USB_CTRL, USB_DEV_AD, UDEV_CTRL;
 volatile uint8_t UEP0_CTRL, UEP1_CTRL, UEP2_CTRL;
 volatile uint8_t UEP0_T_LEN, UEP1_T_LEN, UEP2_T_LEN, UEP4_1_MOD, UEP2_3_MOD;
 volatile uint16_t UEP0_DMA, UEP1_DMA, UEP2_DMA;
+volatile uint8_t SAFE_MOD, WAKE_CTRL, TR2, TF2;
+volatile uint16_t T2COUNT;
+HostPowerControl HostPcon;
+static unsigned int power_entries;
+HostPowerControl &HostPowerControl::operator|=(uint8_t bits) {
+  assert(bits == PD && !EA && WAKE_CTRL == bWAK_BY_USB);
+  assert(HostMisStatus & bUMS_SUSPEND);
+  assert(!(HostUsbFlags.value & 7));
+  ++power_entries;
+  value |= bits;
+  value &= ~PD; /* Hardware clears PD after the USB-only wake event. */
+  HostMisStatus = 0;
+  HostUsbFlags.value |= 4; /* Resume remains pending until interrupts restore. */
+  return *this;
+}
 
 /* Descriptor requests are separately tested against the actual linked image.
  * These are link stubs only; no test below requests a descriptor. */
@@ -261,11 +277,47 @@ static void test_suspend_transport() {
   assert(USBKeyboardSend(report, UsbEpoch, UsbInputEpoch));
 }
 
+static void test_suspend_power_down() {
+  configure();
+  power_entries = 0;
+  WAKE_CTRL = 0;
+  assert(!USBPowerDown(0));
+  UsbSuspended = 1;
+  HostUsbFlags.value = 0;
+  HostMisStatus = 0; /* Resume before main's final suspend re-check. */
+  assert(!USBPowerDown(0) && !WAKE_CTRL && EA);
+  HostMisStatus = bUMS_SUSPEND;
+  assert(!USBPowerDown(1)); /* Pending VIA reply, ISP or active macro. */
+  UsbRawHeld = 1;
+  assert(!USBPowerDown(0));
+  UsbRawHeld = 0; UsbRawBusy = 1;
+  assert(!USBPowerDown(0));
+  UsbRawBusy = 0;
+  HostInjectFlags = 4; /* Resume/event arrives while reading USB_MIS_ST. */
+  assert(!USBPowerDown(0) && !WAKE_CTRL && (HostUsbFlags.value & 4));
+  HostUsbFlags.value = 0;
+  TF2 = 1; T2COUNT = 0; TR2 = 1;
+  assert(USBPowerDown(0));
+  assert(power_entries == 1 && WAKE_CTRL == 0 && SAFE_MOD == 0 && EA);
+  assert(TR2 && !TF2 && T2COUNT == 0xC180); /* No stale debounce tick after PD. */
+  assert(HostUsbFlags.value & 4); /* The sleep helper never consumes resume. */
+  USBInterrupt();
+  assert(!UsbSuspended && !(HostUsbFlags.value & 4));
+  /* Restore the caller's interrupt state, including an already-masked caller. */
+  EA = 0;
+  UsbSuspended = 1;
+  HostMisStatus = bUMS_SUSPEND;
+  assert(USBPowerDown(0) && !EA && !WAKE_CTRL);
+  EA = 1;
+  USBInterrupt();
+}
+
 int main() {
   test_set_report_status();
   test_epoch_take_race();
   test_resume_preserves_late_events();
   test_endpoint_halt();
   test_suspend_transport();
-  std::puts("USB SFR tests: PASS (SET_REPORT status, epoch race, late resume events/W1C, halt, suspend transport)");
+  test_suspend_power_down();
+  std::puts("USB SFR tests: PASS (SET_REPORT status, epoch race, late resume events/W1C, halt, suspend transport, guarded USB-only PD/restore)");
 }

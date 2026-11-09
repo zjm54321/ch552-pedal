@@ -36,13 +36,25 @@ Prefix `ch55xduino/ch55x/`:
   reset epochs. Its USB initialization and endpoint completion sequence derive
   from `USBHIDKeyboardMouse.c` in the same example.
 - `firmware/ch552/storage_flash.c` adapts `cores/ch55xduino/eeprom.c`'s CH552
-  DataFlash access sequence, limits writes to logical bytes 0..15, checks command
-  status and readback, and reports failure. `firmware/ch552/storage.c` is the new
+  DataFlash access sequence, bounds reads/writes to the 128 logical cells, checks
+  command status and readback, and reports failure. Keymaps still own logical
+  bytes 0..15; macros own 16..127. `firmware/ch552/storage.c` is the new
   host-testable two-slot journal above it and contains no upstream code.
 - `firmware/ch552/main.c`'s ISP entry sequence derives from
   `cores/ch55xduino/USBCDC.c`: detach USB, disable interrupts, zero TMOD, wait
   100 ms, call the installed bootloader at `0x3800`.
 - The four descriptor/register support headers are otherwise unchanged.
+
+The 2026-11-09 VIA 13/macros/power-down additions do not remove vendored paths.
+`firmware/ch552/usb_power.c` follows the WCH CH552 HID sample's SAFE_MOD /
+WAKE_CTRL / PCON sequence, moved to main with USB-only wake and a final suspend
+check. `firmware/core/pedal_macro.c` adapts QMK's GPL-2.0-or-later US ASCII and
+bit-packed shift tables (128 + 16 bytes); its parser/player are new code.
+Core/storage/playback/queue and transport report pointers are explicitly XRAM
+qualified to reduce SDCC generic-pointer dispatch; descriptor pointers retain
+the existing code/XRAM support for per-chip strings. No bounds check or callback
+was removed; `--model-large --nooverlay` remains. Variant build defines select
+test or borrowed is0 IDs through `board_config.h`; descriptor source is shared.
 
 The board glue is GPL-3.0-or-later as marked in-file; adapted library code retains
 its upstream LGPL provenance. No upstream `via.c`, Arduino runtime, board manager,

@@ -44,4 +44,12 @@ uint8_t host_usb_mis_st();
 #define UIF_SUSPEND HostSuspend
 #define U_TOG_OK (HostUsbFlags.value & 0x40)
 #define USB_MIS_ST host_usb_mis_st()
+
+/* PCON write models immediate USB wake, recording entry invariants. */
+struct HostPowerControl {
+  uint8_t value = 0;
+  HostPowerControl &operator|=(uint8_t bits);
+};
+extern HostPowerControl HostPcon;
+#define PCON HostPcon
 #endif

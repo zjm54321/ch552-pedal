@@ -2,7 +2,6 @@
   "name": "CH552 Pedal (local development)",
   "vendorId": "0x1209",
   "productId": "0x0001",
-  "lighting": "none",
   "matrix": { "rows": 1, "cols": 1 },
   "layouts": {
     "keymap": [["0,0"]]

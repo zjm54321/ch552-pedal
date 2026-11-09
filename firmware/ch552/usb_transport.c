@@ -141,7 +141,7 @@ void USB_EP2_OUT(void) {
   }
 }
 
-uint8_t USBKeyboardSend(const uint8_t *report, uint8_t epoch, uint8_t input_epoch) {
+uint8_t USBKeyboardSend(const __xdata uint8_t *report, uint8_t epoch, uint8_t input_epoch) {
   uint8_t i;
   uint8_t saved_ea = EA;
   EA = 0;
@@ -161,7 +161,7 @@ uint8_t USBKeyboardSend(const uint8_t *report, uint8_t epoch, uint8_t input_epoc
   return 1;
 }
 
-uint8_t USBRawTake(uint8_t *report, uint8_t epoch) {
+uint8_t USBRawTake(__xdata uint8_t *report, uint8_t epoch) {
   uint8_t i;
   uint8_t saved_ea = EA;
   EA = 0;
@@ -184,7 +184,7 @@ uint8_t USBRawTake(uint8_t *report, uint8_t epoch) {
   return 1;
 }
 
-uint8_t USBRawReply(const uint8_t *report, uint8_t epoch) {
+uint8_t USBRawReply(const __xdata uint8_t *report, uint8_t epoch) {
   uint8_t i;
   uint8_t saved_ea = EA;
   EA = 0;

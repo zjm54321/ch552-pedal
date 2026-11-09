@@ -11,23 +11,23 @@
 static uint8_t active_slot;
 static uint16_t generation;
 
-static void read_slot(uint8_t base, uint8_t *bytes) {
+static void read_slot(uint8_t base, uint8_t PEDAL_XDATA *bytes) {
   uint8_t i;
   for (i = 0; i < PEDAL_STORAGE_SIZE; ++i)
     bytes[i] = storage_read_byte(base + i);
 }
 
-static uint8_t valid_slot(const uint8_t *bytes, uint8_t *report) {
+static uint8_t valid_slot(const uint8_t PEDAL_XDATA *bytes, uint8_t PEDAL_XDATA *report) {
   uint16_t crc = ((uint16_t)bytes[6] << 8) | bytes[7];
   return bytes[0] == SLOT_COMMIT && bytes[1] == 2 &&
          pedal_record_crc(bytes) == crc &&
          pedal_keycode_report(((uint16_t)bytes[4] << 8) | bytes[5], report);
 }
 
-void storage_load(uint8_t *record) {
+void storage_load(uint8_t PEDAL_XDATA *record) {
   uint8_t base;
   uint16_t next_generation;
-  pedal_core_t loaded;
+  PEDAL_XDATA pedal_core_t loaded;
   /* A valid v1 record at zero remains readable, and is never overwritten by
    * the first migration save: that save targets the second slot. */
   read_slot(0, record);
@@ -53,13 +53,13 @@ void storage_load(uint8_t *record) {
   }
 }
 
-uint8_t storage_save(const uint8_t *record) {
-  uint8_t bytes[PEDAL_STORAGE_SIZE];
+uint8_t storage_save(const uint8_t PEDAL_XDATA *record) {
+  PEDAL_XDATA uint8_t bytes[PEDAL_STORAGE_SIZE];
   uint8_t i;
   uint8_t target = active_slot == 0 || active_slot == SLOT_LEGACY ? 8 : 0;
   uint16_t next_generation = generation + 1u;
   uint16_t crc;
-  pedal_core_t proposed;
+  PEDAL_XDATA pedal_core_t proposed;
   if (!pedal_core_init(&proposed, record, PEDAL_STORAGE_SIZE)) return 0;
   bytes[0] = SLOT_COMMIT;
   bytes[1] = 2;
