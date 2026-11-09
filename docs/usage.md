@@ -5,13 +5,22 @@
 使用支持 WebHID 的桌面 Chrome / Edge，打开 <https://usevia.app/>。
 普通键盘功能无需打开网页；网页仅用于配置。
 
+先选固件变体：默认 `test`（`1209:0001`）按下面步骤手动导入定义；
+`is0`（`A103:0012`）使用 VIA 现有官方 is0 V3 定义，无需导入，直接进入
+**Configure** 授权 **Pedal XXXXXXXXXX**。两者都用协议 13，V2 toggle 关闭，
+产品名/序列号保持每芯片唯一。is0 的界面名称/外形来自官方键盘定义，物理输入仍是脚踏。
+
 1. 在 **Settings** 打开 **Show Design tab**。
 2. 在 **Design → Load Draft Definition → Load** 导入 `via/pedal.json`，
-   导入前先打开 **Use V2 definitions (deprecated)**。固件声明 VIA 协议 8，
-   VIA 对协议 11 以下的设备只查 V2 定义，用 V3 导入会提示找不到 V2 定义。
+   导入前关闭 **Use V2 definitions (deprecated)**。固件声明 VIA 协议 13，
+   使用 V3 定义，不再使用旧版 V2 定义。
 3. 返回 **Configure**，授权并选择目标脚踏。
 4. 点击唯一的按键，选择普通键；组合键使用 **Special → Any**。
 5. 确认后读回键位，并在文本编辑器或目标应用里检查按下和松开。
+
+两个 ID 都未分配给本项目：`1209:0001` 只供私人开发测试；is0 ID 属于
+ai03 / illuminati，公开 `usb.ids` 未列出 `A103`，看来是其自分配。真正的 is0 /
+ai03 软件可能误认脚踏。便利变体只用于本地开发，**不得用于销售或认证产品**。
 
 常用组合键输入：
 
@@ -22,13 +31,31 @@
 | 右 Ctrl+C | `RCTL(KC_C)` | `0x1106` |
 | 只按住左 Ctrl | `KC_LCTL` | `0xe0` |
 | 不输出按键 | `KC_NO` | `0x0` |
+| 播放宏 0（其余依次为 1、2、3） | `MACRO(0)` | `0x7700` |
 
 当前 VIA 的 Any 输入框要求十六进制的规范写法，勿补齐前导零：例如输入
 `0x106`，而不是 `0x0106`。协议与存储内部仍使用完整的 16-bit keycode。
 
-固件只接受普通键、修饰键及两者组合；VIA 中的媒体键、宏和高级 QMK
-行为不属于首版功能，选择后不会覆盖原键位。范围见 [protocol.md](protocol.md)。
+固件接受普通键、修饰键及两者组合和 `MACRO(0..3)`；媒体键和高级 QMK
+行为仍会被拒绝，不覆盖原键位。范围见 [protocol.md](protocol.md)。
 改键后关闭网页、拔插 USB，检查配置仍然有效。
+
+### VIA 宏
+
+在 VIA 的 **Macros** 页编辑四个宏，再把唯一按键映射到相应 MACRO 键。
+可输入 ASCII 文本、`{KC_ENTER}`、`{KC_LCTL,KC_C}`，或 `{250}` 表示 250 ms
+延时。明确的按下/松开是 `{+KC_LCTL}` / `{-KC_LCTL}`；动作只能使用单字节
+键盘 keycode。延时范围 0..9999 ms。文本按 **US 键盘布局**发送，不是 Unicode；
+目标系统的布局、Caps Lock 和已经按住的修饰键会影响结果。
+
+四个宏共享 109 字节（四个 `00` 终止符和最后一字节标记也占空间）。踩下启动后
+播放到结束，松开不会中止，播放期间再次踩下被忽略。修改宏、USB reset 或挂起会
+安全停止并释放；普通改键不会改变正在播放的序列。VIA 保存采用先 reset、写末字节
+`FF`、顺序写块、最后写 `00` 的流程；失败后不要把最后的 `00` 当作成功，请重新保存。
+单份存储不能保留更新前的宏，断电后可能为空/不可播放；键位双槽日志不受影响。
+
+本次宏 UI、is0 自动匹配、USB power-down 状态保持、恢复不重枚举及电流尚未在实物验证。挂起时脚踏不能唤醒
+主机，挂起期间的点击不会补发；恢复后重新去抖并报告当前状态，宏需松开后重新踩下。
 
 ## 同时使用两个设备
 
@@ -71,7 +98,8 @@ nix develop
 wchisp probe
 wchisp info
 # 确认输出为目标 CH552 后，在项目目录执行：
-wchisp flash build/ch552/pedal.hex
+wchisp flash build/ch552/pedal-test.hex
+# 本地 is0 便利变体则选择 build/ch552/pedal-is0.hex
 ```
 
 `wchisp flash` 默认执行擦除、写入、校验并重启；不要添加跳过校验选项。
