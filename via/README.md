@@ -28,7 +28,7 @@ commit `9e3e9f4aa9f50f9439fdebc747560f51aaf109a0`, under the upstream
 SHA-256: `f28225f3114cc2f8ed01872e919401ef5f45d5524544c4a8251afbab8a9fa6f5`.
 Its matrix is 1x1 with key `0,0` and no menus. The matching QMK keyboard is
 [`keyboards/illuminati/is0`](https://github.com/qmk/qmk_firmware/tree/master/keyboards/illuminati/is0).
-Real VIA automatic matching and macro UI behavior still require hardware acceptance.
+Hardware acceptance on 2026-11-09 confirmed automatic matching and UI recognition for `is0` on physical hardware.
 
 ## Supported protocol
 
@@ -41,11 +41,12 @@ layers and advanced QMK keycodes are unavailable/rejected. VIA's generic keycode
 picker may show unsupported choices; an `0xFF` reply means rejected, not saved.
 The UI key label reflects its mapped key; its physical function is **Pedal**.
 VIA remapping and its bootloader-jump command do not flash firmware. Flashing
-requires the WCH USB ISP transport and a separately authorized `wchisp` action.
+requires the WCH USB ISP transport and an authorized flashing tool (such as WCHISPTool or `wchisp`).
 
 Macro editing uses VIA's Macros tab; remap the pedal to the matching MACRO key.
 Playback finishes even if the pedal is released, and repeated presses during
 playback are ignored. Macro writes/reset, USB reset and suspend abort safely.
 CRC/structure/framing checks reject partial uploads, but there is no second
 macro copy: an interrupted update can lose the previous macros. See
-`docs/protocol.md`. Real VIA macro UI behavior remains hardware-only acceptance.
+`docs/protocol.md`. Real VIA macro UI behavior (editing, playing, persistence,
+and oversize rejection) was verified on physical hardware on 2026-11-09.

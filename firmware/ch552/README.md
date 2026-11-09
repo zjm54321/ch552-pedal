@@ -58,7 +58,9 @@
   Timer2 pauses during PD; its phase and debounce restart, uptime excludes PD.
   Unmeasured 5V estimate: roughly 0.3 mA released / 0.37 mA held (0.1 mA MCU,
   ~0.2 mA USB pull-up, +70 µA held-input pull-up); other board loads add current.
-  Datasheet-only estimates do not replace PD-current/USB-retention/resume tests.
+  On 2026-11-09 hardware acceptance, USB suspend and resume without stuck keys
+  or event replay was confirmed on a physical board; no numeric suspend current
+  was measured, so the ~0.3 mA figure remains a datasheet estimate.
 - Endpoint halt is tracked per direction for EP1/EP2 only, validated before any
   state change, reported by GET_STATUS and preserved by send/completion paths.
 - Runtime VIA `0x0B` queues its reply and a keyboard release, allows up to 100 ms
@@ -97,3 +99,17 @@ This stack figure is linker placement, not measured runtime high-water.
 
 See `third_party/ch55xduino/PROVENANCE.md` for the pinned reused stack and local
 changes, and `via/README.md` for the development-only IDs and configuration flow.
+
+## Hardware acceptance (2026-11-09)
+
+Tested on physical CH552G hardware (WCH bootloader 2.50) using WCHISPTool:
+- Flashing via JP1 hardware jumper succeeded;
+- Enumeration as per-chip UID product/serial ("Pedal 95BA7575BF");
+- VIA 13 connection and automatic is0 layout recognition;
+- Key remap and persistence across power-cycling (DataFlash dual-slot journal);
+- Modifier chords (Ctrl+Shift+K etc.);
+- V11 macro write, playback, persistence, and oversize rejection;
+- Suspend power-down and wake without stuck keys or replayed taps;
+- Held pedal at power-up successfully enters WCH bootloader without erasing keymaps or macros.
+
+Note: Suspend current was not measured with a meter (datasheet estimate only). Simultaneous dual-unit operation was not separately reported.
