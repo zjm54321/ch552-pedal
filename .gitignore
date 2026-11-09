@@ -3,6 +3,7 @@
 /.cache/
 /build/
 /tests/core/build/
+/tests/board/build/
 /result
 /result-*
 __pycache__/
